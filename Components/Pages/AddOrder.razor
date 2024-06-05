@@ -1,0 +1,214 @@
+﻿@inject NavigationManager Nav
+@inject ILocalStorageService LocalStorage
+@rendermode InteractiveServer
+@using Points_System.Models
+@using System.Net.Http.Headers
+@inject IJSRuntime IJS
+
+<MudDialog TitleClass="mud-primary" DisableSidePadding="true">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Style="color:white">
+            Add Order
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudContainer Style="max-height: 500px; overflow-y: scroll">
+            <div class="container mt-5">
+                <div class="row">
+                    <div class="col-sm-6">
+                        <br /><br /><br />
+                        <MudText Typo="Typo.body1" Align="Align.Center">
+                            Item Name: <u>@_items.itemname</u>
+                        </MudText>
+                        <MudText Typo="Typo.body1" Align="Align.Center">
+                            Item Price: <u> ₱@_items.price</u>
+                        </MudText>
+                    </div>
+                    <div class="col-sm-6">
+
+                        <MudImage Src="@($"data:image/bmp;base64,{Convert.ToBase64String(_items.photo)}")"
+                                  Class="img-fluid rounded-lg ma-4"
+                                  Width="150" />
+                    </div>
+                </div>
+            </div>
+            <p1>Customer Name</p1>
+            <MudAutocomplete Clearable T="customers" @bind-Value="_customer" Variant="Variant.Outlined" Margin="Margin.Dense" SearchFunc="@Search" ToStringFunc="@(e => e == null ? null : $"{e.fullname}")"></MudAutocomplete><br />
+            <MudStack Spacing="2">
+                <MudButton Variant="Variant.Outlined" Color="Color.Success" OnClick="OnExpandCollapseClick">@(_expanded ? "Cancel" : "Apply Discount")</MudButton>
+                <MudCollapse Expanded="_expanded">
+                    <p1 style="font-size:20px; font-weight:bold">Available discount: @_customer.points%</p1>
+                </MudCollapse>
+            </MudStack> <br />
+            @{
+                discountedPrice = _items.price - (_items.price * (_customer.points / 100m));
+            }
+            @if (_expanded == true)
+            {
+                <MudText Typo="Typo.body1" Align="Align.Center" Style="font-size:30px; font-weight:bold;">Total:<u>₱@discountedPrice</u> </MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body1" Align="Align.Center" Style="font-size:30px; font-weight:bold;">Total:<u>₱@_items.price</u> </MudText>
+            }
+
+        </MudContainer>
+    </DialogContent>
+    <DialogActions>
+        <MudButton @onclick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Tertiary" Size="Size.Small" @onclick="Submit">Submit</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public items _items { get; set; } = new items();
+    [Parameter] public customers _customer { get; set; } = new customers();
+    [Parameter] public orders _order { get; set; } = new orders();
+    [Parameter] public byte[] _photo { get; set; } = null;
+    private DateTime _date = DateTime.Now;
+    private decimal discountedPrice;
+    [CascadingParameter] MudDialogInstance? MudDialog { get; set; }
+    bool _expanded = false;
+
+    private void OnExpandCollapseClick()
+    {
+        if (_customer.points == 0)
+        {
+            IJS.InvokeVoidAsync("showAlert", "No Discount Available!");
+        }
+        else
+        {
+            _expanded = !_expanded;
+        }
+       
+    }
+
+    private void Cancel ()
+    {
+        MudDialog.Close();
+    }
+
+    private async Task<IEnumerable<customers>> Search(string value)
+    {
+        HttpClient httpClient = new HttpClient();
+        httpClient.BaseAddress = new Uri($"{Nav.BaseUri}");
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+        await LocalStorage.GetItemAsStringAsync("token"));
+        var xinfo = await httpClient.GetFromJsonAsync<List<customers>>($"api/Customer/SearchCustomer?search={value}");
+        return xinfo;
+    }
+
+    private async Task Submit()
+    {
+        if (_expanded == true && discountedPrice > 0)
+        {
+            int i = 0;
+            try
+            {
+                var cus = new order2
+                    {
+                        orderID = Guid.NewGuid().ToString(),
+                        date = _date,
+                        customerID = _customer.customerID,
+                        itemID = _items.itemID,
+                        points = 0,
+                        discount = _customer.points,
+                        total = discountedPrice
+                    };
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                    var json = JsonConvert.SerializeObject(cus);
+                    HttpContent content = new StringContent(json);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                    await LocalStorage.GetItemAsStringAsync("token"));
+                    HttpResponseMessage response = await client.PostAsync($"api/Order/AddOrder2", content);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string contentresponse = await response.Content.ReadAsStringAsync();
+                        i = JsonConvert.DeserializeObject<int>(contentresponse);
+                        if (i > 0)
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                MudDialog.Close();
+                                await IJS.InvokeVoidAsync("showAlert", "Successfully Saved!");
+                                StateHasChanged();
+                            });
+                        }
+                    }
+                    else
+                    {
+                        await InvokeAsync(() =>
+                        {
+                            MudDialog.Close();
+                            IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+                            StateHasChanged();
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+        
+        }
+        else
+        {
+            int i = 0;
+            try
+            {
+                var cus = new order2
+                    {
+                        orderID = Guid.NewGuid().ToString(),
+                        date = _date,
+                        customerID = _customer.customerID,
+                        itemID = _items.itemID,
+                        points = _items.price / 1000m,
+                        discount = _customer.points,
+                        total = _items.price
+                    };
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                    var json = JsonConvert.SerializeObject(cus);
+                    HttpContent content = new StringContent(json);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                    await LocalStorage.GetItemAsStringAsync("token"));
+                    HttpResponseMessage response = await client.PostAsync($"api/Order/AddOrder", content);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string contentresponse = await response.Content.ReadAsStringAsync();
+                        i = JsonConvert.DeserializeObject<int>(contentresponse);
+                        if (i > 0)
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                MudDialog.Close();
+                                await IJS.InvokeVoidAsync("showAlert", "Successfully Saved!");
+                                StateHasChanged();
+                            });
+                        }
+                    }
+                    else
+                    {
+                        await InvokeAsync(() =>
+                        {
+                            MudDialog.Close();
+                            IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+                            StateHasChanged();
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+       
+    }
+}

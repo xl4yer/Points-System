@@ -1,0 +1,61 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@layout Components.Layout.LoginLayout
+@using Points_System.Models
+@inject NavigationManager Nav
+@inject ILocalStorageService LocalStorage
+@inject IJSRuntime IJS
+
+<br /><br />
+<center>
+    <MudItem xs="12" sm="6" md="4" >
+        <MudText Align="Align.Center" Typo="Typo.h6" Style="font-family:Tahoma">USER LOGIN</MudText><br />
+        <MudPaper Class="pa-4" Style="text-align: center;">
+            <MudTextField @bind-Value="username" Label="Username" Variant="Variant.Outlined" FullWidth="true" Margin="Margin.Dense"></MudTextField><br />
+            <MudTextField @bind-Value="password" Label="Password" Variant="Variant.Outlined" FullWidth="true" Margin="Margin.Dense" InputType="InputType.Password"></MudTextField>
+            <MudButton @onclick="UserLogin" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Style="margin-top: 16px;">Login</MudButton>
+        </MudPaper>
+    </MudItem>
+</center>
+
+@code {
+    private string username = "";
+    private string password = "";
+    List<users> xuser;
+
+    private async Task UserLogin()
+    {
+        xuser = new List<users>();
+        using (HttpClient client = new HttpClient())
+        {
+            client.BaseAddress = new Uri($"{Nav.BaseUri}");
+            HttpResponseMessage json = await client.GetAsync($"api/User/Login?username={username}&password={password}");
+            if (json.IsSuccessStatusCode)
+            {
+                string content = await json.Content.ReadAsStringAsync();
+                List<users> code = JsonConvert.DeserializeObject<List<users>>(content);
+
+                if (code.Count > 0)
+                {
+                    xuser.Add(new users()
+                        {
+                            userID = code[0].userID,
+                            token = code[0].token,
+                            name = code[0].name,
+                            username = code[0].username,
+                        });
+                    await LocalStorage.SetItemAsStringAsync("token", xuser[0].token);
+                    Nav.NavigateTo("/customer");
+                }
+                else
+                {
+                    await IJS.InvokeVoidAsync("showAlert", "Invalid Username or Password!");
+                }
+            }
+            else
+            {
+                await IJS.InvokeVoidAsync("showAlert", "Invalid Username or Password!");
+            }
+        }
+    }
+}

@@ -1,0 +1,133 @@
+﻿@page "/orders"
+@using Points_System.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+@using System.Net.Http.Headers
+@inject ILocalStorageService localStorage
+@rendermode InteractiveServer
+@inject IJSRuntime IJS
+
+<MudToolBar>
+    <MudSpacer />
+    <MudTextField @bind-Value="txtsearch" Clearable AdornmentColor="Color.Tertiary" Placeholder="Filter By Customer Name" Variant="Variant.Outlined" Margin="Margin.Dense" /> &nbsp;
+    <button type="button" class="btn btn-success" @onclick="Search">Search</button> &nbsp;
+    <button type="button" class="btn btn-primary" @onclick="Refresh">Refresh</button>
+</MudToolBar>
+@if (orderList != null && orderList.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Name</th>
+                <th>Photo</th>
+                <th>Item Name</th>
+                <th>Original Price</th>
+                <th>Discount</th>
+                <th>Total Price</th>
+                <th>Gain Points</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in orderList)
+            {
+                <tr>
+                    <td>@item.date</td>
+                    <td>@item.fullname</td>
+                    <td id="rows" data-label="Photo">
+                        <img src="data:image/bmp;base64, @(Convert.ToBase64String(item.photo))" class="img-fluid" alt="Photo" height="100" width="100" />
+                    </td>
+                    <td>@item.itemname</td>
+                    <td>@item.price</td>
+                    <td>@item.discount%</td>
+                    <td><u>@item.total</u></td>
+                    <td>@item.points</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p1 style="font-weight:bold; font-size:20px;">No Orders Found!</p1>
+}
+
+
+@code {
+    private orders[]? orderList;
+    [Parameter] public orders _order { get; set; } = new orders();
+    private string txtsearch { get; set; } = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await loadOrder();
+        }
+    }
+
+    private void Refresh()
+    {
+        loadOrder();
+    }
+
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(txtsearch))
+        {
+            StateHasChanged();
+            return;
+        }
+        using (HttpClient client = new HttpClient())
+        {
+            client.BaseAddress = new Uri($"{Nav.BaseUri}");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            await localStorage.GetItemAsStringAsync("token"));
+            HttpResponseMessage response = await client.GetAsync($"api/Order/SearchOrder?search={txtsearch}");
+            if (response.IsSuccessStatusCode)
+            {
+                string contentrespose = await response.Content.ReadAsStringAsync();
+                orderList = JsonConvert.DeserializeObject<orders[]>(contentrespose);
+                StateHasChanged();
+            }
+            else
+            {
+                await IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+            }
+        }
+    }
+
+    private async Task loadOrder()
+    {
+        try
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                await localStorage.GetItemAsStringAsync("token"));
+                HttpResponseMessage response = await client.GetAsync("api/Order/Orders");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    string contentResponse = await response.Content.ReadAsStringAsync();
+                    orderList = JsonConvert.DeserializeObject<orders[]>(contentResponse);
+                    StateHasChanged();
+                }
+                else
+                {
+
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+
+        }
+    }
+
+    private async Task Submit()
+    {
+
+    }
+}

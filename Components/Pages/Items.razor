@@ -1,0 +1,378 @@
+﻿@page "/items"
+@using Points_System.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+@using System.Net.Http.Headers
+@inject ILocalStorageService localStorage
+@rendermode InteractiveServer
+@inject IJSRuntime IJS
+@inject IDialogService Dialog
+@using Points_System.Components.Pages
+
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-sm-3">
+            <br /><br />
+            <p1>Item ID No.</p1>
+            <input type="text" class="form-control" disabled @bind-value="_items.itemID" /><br />
+            <p1>Item Name</p1>
+            <input type="text" class="form-control" @bind-value="_items.itemname" /><br />
+            <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg" FilesChanged="UploadFiles" Required="true" RequiredError="Error" style="display: inline;">
+                <ButtonTemplate>
+                    <MudButton HtmlTag="label" Variant="Variant.Outlined" Color="Color.Warning" for="@context.Id" style="display: inline;">
+                        Upload Image
+                    </MudButton>
+                </ButtonTemplate>
+                <SelectedTemplate>
+                    @if (context != null)
+                    {
+                        <MudText style="display: inline;">&nbsp;&nbsp;@context.Name</MudText>
+                    }
+                    else
+                    {
+                        <MudText style="display: inline;">&nbsp;&nbsp;No File</MudText>
+                    }
+                </SelectedTemplate>
+            </MudFileUpload><br /><br />
+            <p1>Price</p1>
+            <input type="text" class="form-control" @bind-value="_items.price" /><br />
+            <div class="row">
+                <div class="col">
+                    <button type="button" class="btn btn-warning" @onclick="Clear">Clear</button>
+                    <button type="button" class="btn btn-success" @onclick="Submit">@bot</button>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-9">
+            <MudToolBar>
+                <MudSpacer />
+                <MudTextField @bind-Value="txtsearch" Clearable AdornmentColor="Color.Tertiary" Placeholder="Filter By Item Name" Variant="Variant.Outlined" Margin="Margin.Dense" /> &nbsp;
+                <button type="button" class="btn btn-success" @onclick="Search">Search</button> &nbsp;
+                <button type="button" class="btn btn-primary" @onclick="Refresh">Refresh</button>
+            </MudToolBar>
+            @if (itemList != null && itemList.Any())
+            {
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Item ID No.</th>
+                            <th>Photo</th>
+                            <th>Item Name</th>
+                            <th>Price</th>
+                            <th>Status</th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in itemList)
+                        {
+                            <tr>
+                                <td>@item.itemID</td>
+                                <td id="rows" data-label="Photo">
+                                    <img src="data:image/bmp;base64, @(Convert.ToBase64String(item.photo))" class="img-fluid" alt="Photo" height="100" width="100" />
+                                </td>
+                                <td>@item.itemname</td>
+                                <td>@item.price</td>
+                                <td>
+                                    @if (item.status == "Sold")
+                                    {
+                                        <MudChip Color="Color.Warning" Size="Size.Small">@item.status</MudChip>
+                                    }
+                                    else
+                                    {
+                                        <MudChip Color="Color.Success" Size="Size.Small">@item.status</MudChip>
+                                    }
+                                </td>
+                                @if (item.status == "Sold")
+                                {
+                                    <td><button type="button" disabled class="btn btn-warning btn-sm">Edit</button></td>
+                                }
+                                else
+                                {
+                                    <td><button type="button" class="btn btn-warning btn-sm" @onclick="(e => Update(item.itemID))">Edit</button></td>
+                                }
+                                <td>
+                                    @if (item.status == "Sold")
+                                    {
+                                        <button type="button" disabled class="btn btn-primary btn-sm">Add Order</button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="btn btn-primary btn-sm" @onclick="(e => Orders(item.itemID))">Add Order</button>
+                                    }
+                                </td>
+                                @if (item.status == "Sold")
+                                {
+                                    <td><button type="button" disabled class="btn btn-danger btn-sm">Delete</button></td>
+                                }
+                                else
+                                {
+                                    <td><button type="button" class="btn btn-danger btn-sm">Delete</button></td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p>Loading customers...</p>
+            }
+        </div>
+    </div>
+</div>
+
+
+
+@code {
+    private items[]? itemList;
+    [Parameter] public items _items { get; set; } = new items();
+    [Parameter] public string img64 { get; set; } = "";
+    [Parameter] public string imgsrc { get; set; } = "";
+    [Parameter] public byte[] _filebytes { get; set; } = null;
+    [Parameter] public byte[] photo { get; set; } = null;
+    private string txtsearch { get; set; } = "";
+    private string bot = "save";
+    private string _transaction { get; set; } = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _transaction = "save";
+            await loadItems();
+        }
+    }
+
+
+    IList<IBrowserFile> files = new List<IBrowserFile>();
+    public bool def { get; set; }
+    private async void UploadFiles(IBrowserFile file)
+    {
+        def = true;
+        files.Add(file);
+        var memoryStream = new MemoryStream();
+        await file.OpenReadStream(file.Size).CopyToAsync(memoryStream);
+        _filebytes = memoryStream.ToArray();
+        photo = GetImage(Convert.ToBase64String(_filebytes));
+        imgsrc = string.Format("data:image/jpg;base64,{0}", Convert.ToBase64String(photo));
+        StateHasChanged();
+    }
+
+    public byte[] GetImage(string sBase64String)
+    {
+        byte[] bytes = null;
+        if (!string.IsNullOrEmpty(sBase64String))
+        {
+            bytes = Convert.FromBase64String(sBase64String);
+        }
+        return bytes;
+
+    }
+
+    private async Task Clear()
+    {
+        _items.itemID = "";
+        _items.itemname = "";
+        _items.price = 0;
+        _transaction = "save";
+        bot = "save";
+        await loadItems();
+    }
+    private async Task Search()
+    {
+        _transaction = "save";
+        if (string.IsNullOrWhiteSpace(txtsearch))
+        {
+            StateHasChanged();
+            return;
+        }
+        using (HttpClient client = new HttpClient())
+        {
+            client.BaseAddress = new Uri($"{Nav.BaseUri}");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            await localStorage.GetItemAsStringAsync("token"));
+            HttpResponseMessage response = await client.GetAsync($"api/Item/SearchItem?search={txtsearch}");
+            if (response.IsSuccessStatusCode)
+            {
+                string contentrespose = await response.Content.ReadAsStringAsync();
+                itemList = JsonConvert.DeserializeObject<items[]>(contentrespose);
+                StateHasChanged();
+            }
+            else
+            {
+                await IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+            }
+        }
+    }
+
+    private async Task Update(string id)
+    {
+        _transaction = "update";
+        _items = itemList.FirstOrDefault(c => c.itemID == id);
+        bot = "update";
+    }
+
+    private async Task Orders(string id)
+    {
+        var parameters = new DialogParameters();
+        var add = itemList.FirstOrDefault(_ => _.itemID == id);
+        parameters.Add("_items", add);
+        var dialog = await Dialog.Show<AddOrder>("Add Order", parameters).Result;
+    }
+    public async Task Refresh()
+    {
+        _transaction = "save";
+        bot = "save";
+        await loadItems();
+    }
+
+    public async Task loadItems()
+    {
+        try
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                await localStorage.GetItemAsStringAsync("token"));
+                HttpResponseMessage response = await client.GetAsync("api/Item/Items");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    string contentResponse = await response.Content.ReadAsStringAsync();
+                    itemList = JsonConvert.DeserializeObject<items[]>(contentResponse);
+                    StateHasChanged();
+                }
+                else
+                {
+
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+
+        }
+    }
+
+    private async Task Submit()
+    {
+        if (_transaction == "update")
+        {
+            int i = 0;
+            try
+            {
+                var _item = new items
+                    {
+                        itemID = _items.itemID,
+                        photo = _items.photo,
+                        itemname = _items.itemname,
+                        price = _items.price,
+                        status = "Available"
+                    };
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                    var json = JsonConvert.SerializeObject(_item);
+                    HttpContent content = new StringContent(json);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                    await localStorage.GetItemAsStringAsync("token"));
+                    HttpResponseMessage response = await client.PutAsync($"api/Item/UpdateItem", content);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string contentresponse = await response.Content.ReadAsStringAsync();
+                        i = JsonConvert.DeserializeObject<int>(contentresponse);
+                        if (i > 0)
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                await IJS.InvokeVoidAsync("showAlert", "Successfully Updated!");
+                                await Clear();
+                                _transaction = "save";
+                                bot = "save";
+                                StateHasChanged();
+                            });
+                        }
+                    }
+                    else
+                    {
+                        await InvokeAsync(() =>
+                        {
+                            IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+                            StateHasChanged();
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+        else if (_transaction == "save")
+        {
+            int i = 0;
+            try
+            {
+                var _item = new items
+                    {
+                        itemID = Guid.NewGuid().ToString(),
+                        photo = photo,
+                        itemname = _items.itemname,
+                        price = _items.price,
+                        status = "Available"
+                    };
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                    var json = JsonConvert.SerializeObject(_item);
+                    HttpContent content = new StringContent(json);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                    await localStorage.GetItemAsStringAsync("token"));
+                    HttpResponseMessage response = await client.PostAsync($"api/Item/AddItem", content);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string contentresponse = await response.Content.ReadAsStringAsync();
+                        i = JsonConvert.DeserializeObject<int>(contentresponse);
+                        if (i > 0)
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                await IJS.InvokeVoidAsync("showAlert", "Successfully Saved!");
+                                await Clear();
+                                _transaction = "save";
+                                bot = "save";
+                                StateHasChanged();
+                            });
+                        }
+                    }
+                    else
+                    {
+                        await InvokeAsync(() =>
+                        {
+                            IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+                            StateHasChanged();
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+
+        }
+        else
+        {
+
+        }
+        {
+
+        }
+
+    }
+}

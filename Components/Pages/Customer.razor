@@ -1,0 +1,299 @@
+﻿@page "/customer"
+@using Points_System.Models
+@inject HttpClient Http
+@inject NavigationManager Nav
+@using System.Net.Http.Headers
+@inject ILocalStorageService localStorage
+@rendermode InteractiveServer
+@inject IJSRuntime IJS
+
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-sm-3">
+                    <p1>Customer ID No.</p1>
+                    <input type="text" class="form-control" disabled @bind-value="_customer.customerID" /><br />
+                    <p1>First Name</p1>
+                    <input type="text" class="form-control" @bind-value="_customer.fname" /><br />
+                    <p1>Middle Name</p1>
+                    <input type="text" class="form-control" @bind-value="_customer.mname" /><br />
+                    <p1>Last Name</p1>
+                    <input type="text" class="form-control" @bind-value="_customer.lname" /><br />
+                    <p1>Address</p1>
+                    <input type="text" class="form-control" @bind-value="_customer.address" /><br />
+                    <p1>Contact</p1>
+                    <input type="text" class="form-control" @bind-value="_customer.contact" /><br />
+                    <MudToolBar>
+                        <MudSpacer />
+                        <div class="row">
+                            <div class="col">
+                                <button type="button" class="btn btn-warning" @onclick="Clear">Clear</button>
+                                <button type="button" class="btn btn-success" @onclick="Submit">@bot</button>
+                            </div>
+                        </div>
+                    </MudToolBar>
+        </div>
+        <div class="col-sm-9">
+                    <MudToolBar>
+                        <MudSpacer />
+                        <MudTextField @bind-Value="txtsearch" Clearable AdornmentColor="Color.Tertiary" Placeholder="Filter by Customer Name" Variant="Variant.Outlined" Margin="Margin.Dense" /> &nbsp;
+                        <button type="button" class="btn btn-success" @onclick="Search">Search</button> &nbsp;
+                        <button type="button" class="btn btn-primary" @onclick="Refresh">Refresh</button>
+                    </MudToolBar>
+
+                    @if (customerList != null && customerList.Any())
+                    {
+                        <div class="overflow-auto" style="max-height: 500px;">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Address</th>
+                                        <th>Contact</th>
+                                        <th>Available Points</th>
+                                        <th></th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var customer in customerList)
+                                    {
+                                        <tr>
+                                            <td>@customer.fullname</td>
+                                            <td>@customer.address</td>
+                                            <td>@customer.contact</td>
+                                            <td>@customer.points</td>
+                                            <td><button type="button" class="btn btn-warning" @onclick="(e => Update(customer.customerID))">Edit</button></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <p>Loading customers...</p>
+                    }
+        </div>
+    </div>
+</div>
+
+
+
+@code {
+    private customers[]? customerList;
+    public string _transaction { get; set; }
+    [Parameter] public customers _customer { get; set; } = new customers();
+    private string txtsearch { get; set; } = "";
+    private string bot = "Save";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            bot = "save";
+            _transaction = "update";
+            await LoadCustomers();
+        }
+    }
+
+    private async Task Clear()
+    {
+        _customer.customerID = "";
+        _customer.fname = "";
+        _customer.mname = "";
+        _customer.lname = "";
+        _customer.address = "";
+        _customer.contact = "";
+        bot = "save";
+        await LoadCustomers();
+    }
+
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(txtsearch))
+        {
+            StateHasChanged();
+            return;
+        }
+        using (HttpClient client = new HttpClient())
+        {
+            client.BaseAddress = new Uri($"{Nav.BaseUri}");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            await localStorage.GetItemAsStringAsync("token"));
+            HttpResponseMessage response = await client.GetAsync($"api/Customer/SearchCustomer?search={txtsearch}");
+            if (response.IsSuccessStatusCode)
+            {
+                string contentrespose = await response.Content.ReadAsStringAsync();
+                customerList = JsonConvert.DeserializeObject<customers[]>(contentrespose);
+                StateHasChanged();
+            }
+            else
+            {
+                await IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+            }
+        }
+    }
+
+    private async Task Refresh()
+    {
+        _transaction = "save";
+        bot = "save";
+        await LoadCustomers();
+    }
+
+    private async Task LoadCustomers()
+    {
+        _transaction = "save";
+        try
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                await localStorage.GetItemAsStringAsync("token"));
+                HttpResponseMessage response = await client.GetAsync("api/Customer/Customers");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    string contentResponse = await response.Content.ReadAsStringAsync();
+                    customerList = JsonConvert.DeserializeObject<customers[]>(contentResponse);
+                    StateHasChanged();
+                }
+                else
+                {
+
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+
+        }
+    }
+
+    private async Task Update(string id)
+    {
+        _customer = customerList.FirstOrDefault(c => c.customerID == id);
+        bot = "Update";
+        _transaction = "update";
+    }
+
+    private async Task Submit()
+    {
+        if (_transaction == "save")
+        {
+            int i = 0;
+            try
+            {
+                var cus = new customers
+                    {
+                        customerID = Guid.NewGuid().ToString(),
+                        fname = _customer.fname,
+                        mname = _customer.mname,
+                        lname = _customer.lname,
+                        address = _customer.address,
+                        contact = _customer.contact,
+                        points = 0
+                    };
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                    var json = JsonConvert.SerializeObject(cus);
+                    HttpContent content = new StringContent(json);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                    await localStorage.GetItemAsStringAsync("token"));
+                    HttpResponseMessage response = await client.PostAsync($"api/Customer/AddCustomer", content);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string contentresponse = await response.Content.ReadAsStringAsync();
+                        i = JsonConvert.DeserializeObject<int>(contentresponse);
+                        if (i > 0)
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                await Clear();
+                                await IJS.InvokeVoidAsync("showAlert", "Successfully Saved!");
+                                bot = "save";
+                                StateHasChanged();
+                            });
+                        }
+                    }
+                    else
+                    {
+                        await InvokeAsync(() =>
+                        {
+                            IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+                            bot = "save";
+                            StateHasChanged();
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+        else if (_transaction == "update")
+        {
+            int i = 0;
+            try
+            {
+                var cus = new customers
+                    {
+                        customerID = _customer.customerID,
+                        fname = _customer.fname,
+                        mname = _customer.mname,
+                        lname = _customer.lname,
+                        address = _customer.address,
+                        contact = _customer.contact,
+                        points = _customer.points
+                    };
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri($"{Nav.BaseUri}");
+                    var json = JsonConvert.SerializeObject(cus);
+                    HttpContent content = new StringContent(json);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                    await localStorage.GetItemAsStringAsync("token"));
+                    HttpResponseMessage response = await client.PutAsync($"api/Customer/UpdateCustomer", content);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string contentresponse = await response.Content.ReadAsStringAsync();
+                        i = JsonConvert.DeserializeObject<int>(contentresponse);
+                        if (i > 0)
+                        {
+                            await InvokeAsync(async () =>
+                            {
+                                await Clear();
+                                await IJS.InvokeVoidAsync("showAlert", "Successfully Updated!");
+                                bot = "save";
+                                StateHasChanged();
+                            });
+                        }
+                    }
+                    else
+                    {
+                        await InvokeAsync(() =>
+                        {
+                            IJS.InvokeVoidAsync("showAlert", "Transaction Error!");
+                            bot = "save";
+                            StateHasChanged();
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+        else
+        {
+
+        }
+
+    }
+}
